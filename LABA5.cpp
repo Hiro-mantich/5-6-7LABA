@@ -6,14 +6,13 @@
 #include <string>
 #include <vector>
 #include <memory> // Для умных указателей
+#include <algorithm> // Для алгоритмов STL
+#include <map> // Для ассоциативного массива
+#include <ctime> // Для работы с датами
 
-// Константы для ограничения размеров массивов
+// Константы для ограничения размеров массивов (оставлены для совместимости)
 const int MAX_BORROWED_BOOKS = 100;
-const int MAX_BOOKS = 100;
-const int MAX_READERS = 100;
-const int MAX_LOANS = 100;
 const int MAX_NAME_LENGTH = 30;
-const int MAX_AUTHORS = 100;
 
 // Абстрактный базовый класс для персоналий
 class AbstractPerson {
@@ -106,6 +105,11 @@ public:
         os << "Автор: " << author.fio << " (род. " << author.birth_year << ")";
         return os;
     }
+
+    // Оператор сравнения для сортировки
+    bool operator<(const Author& other) const {
+        return this->fio < other.fio;
+    }
 };
 
 // Инициализация статической переменной
@@ -179,21 +183,27 @@ public:
 // Класс Book для представления книг в библиотеке
 class Book {
     std::string title; // Название книги
-    Author* author; // Указатель на автора
+    std::shared_ptr<Author> author; // Умный указатель на автора
     int pub_year; // Год публикации
     int copies; // Количество экземпляров
+    std::string isbn; // Уникальный идентификатор книги
 
 public:
     // Конструктор по умолчанию
-    Book() : author(nullptr), pub_year(0), copies(0) {}
+    Book() : pub_year(0), copies(0) {}
 
     // Геттер для названия книги
     const std::string& get_title() const {
         return title;
     }
 
+    // Геттер для ISBN
+    const std::string& get_isbn() const {
+        return isbn;
+    }
+
     // Метод для добавления книги
-    void add_Book(Author** authors, int num_authors) {
+    void add_Book(const std::vector<std::shared_ptr<Author>>& authors) {
         printf("Введите название книги: \n");
         while (getchar() != '\n'); // Очистка буфера
         std::getline(std::cin, this->title);
@@ -202,16 +212,19 @@ public:
             throw std::invalid_argument("Название книги не может быть пустым.");
         }
 
+        printf("Введите ISBN книги: ");
+        std::getline(std::cin, this->isbn);
+
         printf("Выберите автора (введите номер): ");
-        for (int i = 0; i < num_authors; i++) {
+        for (size_t i = 0; i < authors.size(); i++) {
             if (authors[i] != nullptr) {
-                printf("%d. %s\n", i + 1, authors[i]->get_fio().c_str());
+                printf("%zu. %s\n", i + 1, authors[i]->get_fio().c_str());
             }
         }
 
         int author_index;
         scanf("%d", &author_index);
-        if (author_index < 1 || author_index > num_authors || authors[author_index - 1] == nullptr) {
+        if (author_index < 1 || author_index > static_cast<int>(authors.size()) || authors[author_index - 1] == nullptr) {
             throw std::out_of_range("Некорректный номер автора.");
         }
         this->author = authors[author_index - 1];
@@ -229,6 +242,7 @@ public:
             return;
         }
         printf("Название книги: %s\n", this->title.c_str());
+        printf("ISBN: %s\n", this->isbn.c_str());
         printf("Автор книги: %s\n", this->author->get_fio().c_str());
         printf("Дата публикации: %d\n", this->pub_year);
         printf("Количество экземпляров: %d\n", this->copies);
@@ -237,6 +251,11 @@ public:
     // Не виртуальная функция, вызывающая виртуальную
     void displayBookInfo() const {
         print_Book();
+    }
+
+    // Оператор сравнения для сортировки книг по названию
+    bool operator<(const Book& other) const {
+        return this->title < other.title;
     }
 
     // Дружественная функция для проверки доступности книги
@@ -253,6 +272,7 @@ bool is_book_available(const Book& book, int required_copies) {
 // Перегрузка оператора вывода для Book
 std::ostream& operator<<(std::ostream& os, const Book& book) {
     os << "Книга: " << book.title
+        << "\nISBN: " << book.isbn
         << "\nАвтор: " << book.author->get_fio()
         << "\nГод публикации: " << book.pub_year
         << "\nЭкземпляров: " << book.copies;
@@ -263,20 +283,20 @@ std::ostream& operator<<(std::ostream& os, const Book& book) {
 class Reader : public AbstractPerson {
     std::string fio; // ФИО читателя
     int card_number; // Номер читательского билета
-    Book* borrowed_books[MAX_BORROWED_BOOKS]; // Массив взятых книг
-    int borrowed_count; // Количество взятых книг
+    std::vector<std::shared_ptr<Book>> borrowed_books; // Вектор взятых книг
+    std::map<std::string, std::string> borrowed_dates; // Дата взятия каждой книги (ISBN -> дата)
 
 public:
     // Конструктор по умолчанию
-    Reader() : card_number(0), borrowed_count(0) {}
+    Reader() : card_number(0) {}
 
     // Установка количества взятых книг
     void set_borrowed_count() {
-        borrowed_count++;
+        borrowed_books.push_back(nullptr); // Просто для демонстрации
     }
 
     // Геттер для ФИО
-    std::string& get_fio() {
+    const std::string& get_fio() const {
         return fio;
     }
 
@@ -285,14 +305,9 @@ public:
         return card_number;
     }
 
-    // Получение указателя на borrowed_count
-    int* get_borrowed_count_ptr() {
-        return &borrowed_count;
-    }
-
-    // Получение ссылки на borrowed_count
-    int& get_borrowed_count_ref() {
-        return borrowed_count;
+    // Получение количества взятых книг
+    size_t get_borrowed_count() const {
+        return borrowed_books.size();
     }
 
     // Метод для добавления читателя
@@ -303,7 +318,12 @@ public:
 
         printf("Введите номер читательского билета: ");
         scanf("%d", &this->card_number);
-        this->borrowed_count = 0;
+    }
+
+    // Метод для добавления взятой книги
+    void add_borrowed_book(const std::shared_ptr<Book>& book, const std::string& date) {
+        borrowed_books.push_back(book);
+        borrowed_dates[book->get_isbn()] = date;
     }
 
     // Реализация чисто виртуальной функции из AbstractPerson
@@ -319,7 +339,21 @@ public:
         }
         printf("ФИО читателя: %s\n", this->fio.c_str());
         printf("Номер читательского билета: %d\n", this->card_number);
-        printf("Количество взятых книг: %d\n", this->borrowed_count);
+        printf("Количество взятых книг: %zu\n", this->borrowed_books.size());
+
+        // Вывод информации о взятых книгах
+        for (const auto& book : borrowed_books) {
+            if (book) {
+                auto it = borrowed_dates.find(book->get_isbn());
+                std::string date = (it != borrowed_dates.end()) ? it->second : "неизвестно";
+                printf(" - %s (взято: %s)\n", book->get_title().c_str(), date.c_str());
+            }
+        }
+    }
+
+    // Оператор сравнения для сортировки читателей по ФИО
+    bool operator<(const Reader& other) const {
+        return this->fio < other.fio;
     }
 
     // Дружественная функция для перегрузки оператора вывода
@@ -330,39 +364,40 @@ public:
 std::ostream& operator<<(std::ostream& os, const Reader& reader) {
     os << "Читатель: " << reader.fio
         << "\nНомер билета: " << reader.card_number
-        << "\nВзято книг: " << reader.borrowed_count;
+        << "\nВзято книг: " << reader.borrowed_books.size();
     return os;
 }
 
 // Класс Loan для представления выдачи книг
 class Loan {
-    Book* book; // Указатель на книгу
-    Reader* reader; // Указатель на читателя
+    std::shared_ptr<Book> book; // Умный указатель на книгу
+    std::shared_ptr<Reader> reader; // Умный указатель на читателя
     std::string issue_date; // Дата выдачи
     std::string return_date; // Дата возврата
 
 public:
     // Конструктор по умолчанию
-    Loan() : book(nullptr), reader(nullptr) {}
+    Loan() {}
 
     // Конструктор с параметрами
-    Loan(Book* book, Reader* reader, const std::string& issue_date, const std::string& return_date)
+    Loan(const std::shared_ptr<Book>& book, const std::shared_ptr<Reader>& reader,
+        const std::string& issue_date, const std::string& return_date)
         : book(book), reader(reader), issue_date(issue_date), return_date(return_date) {
     }
 
     // Геттер для даты выдачи
-    std::string get_issue_date() const {
+    const std::string& get_issue_date() const {
         return issue_date;
     }
 
     // Геттер для даты возврата
-    std::string get_return_date() const {
+    const std::string& get_return_date() const {
         return return_date;
     }
 
     // Метод для вывода информации о выдаче
     void print_Loan() const {
-        if (book == nullptr || reader == nullptr || book->get_title().empty() || reader->get_fio().empty()) {
+        if (!book || !reader || book->get_title().empty() || reader->get_fio().empty()) {
             printf("Ошибка: некорректные данные о выдаче.\n");
             return;
         }
@@ -370,6 +405,11 @@ public:
         printf("Читатель: %s\n", reader->get_fio().c_str());
         printf("Дата выдачи книги: %s\n", issue_date.c_str());
         printf("Дата возврата книги: %s\n", return_date.c_str());
+    }
+
+    // Оператор сравнения для сортировки выдач по дате
+    bool operator<(const Loan& other) const {
+        return this->issue_date < other.issue_date;
     }
 
     // Дружественная функция для перегрузки оператора вывода
@@ -388,176 +428,268 @@ std::ostream& operator<<(std::ostream& os, const Loan& loan) {
 
 // Класс Library - основной класс библиотеки
 class Library {
-    Author* authors[MAX_AUTHORS]; // Массив авторов
-    Book* books[MAX_BOOKS]; // Массив книг
-    int book_count; // Количество книг
-    Reader* readers[MAX_READERS]; // Массив читателей
-    int reader_count; // Количество читателей
-    Loan* loans[MAX_LOANS]; // Массив выдач
-    int loan_count; // Количество выдач
+    std::vector<std::shared_ptr<Author>> authors; // Вектор авторов
+    std::vector<std::shared_ptr<Book>> books; // Вектор книг
+    std::vector<std::shared_ptr<Reader>> readers; // Вектор читателей
+    std::vector<std::shared_ptr<Loan>> loans; // Вектор выдач
+    std::map<std::string, std::shared_ptr<Book>> isbn_index; // Индекс книг по ISBN для быстрого поиска
 
 public:
-    // Конструктор
-    Library() : book_count(0), reader_count(0), loan_count(0) {
-        // Инициализация указателей нулевыми значениями
-        for (int i = 0; i < MAX_AUTHORS; i++) authors[i] = nullptr;
-        for (int i = 0; i < MAX_BOOKS; i++) books[i] = nullptr;
-        for (int i = 0; i < MAX_READERS; i++) readers[i] = nullptr;
-        for (int i = 0; i < MAX_LOANS; i++) loans[i] = nullptr;
+    // Метод для сортировки книг по названию
+    void sort_books_by_title() {
+        std::sort(books.begin(), books.end(),
+            [](const std::shared_ptr<Book>& a, const std::shared_ptr<Book>& b) {
+                return *a < *b;
+            });
     }
 
-    // Геттер для количества книг
-    int get_book_count() const {
-        return book_count;
+    // Метод для сортировки читателей по ФИО
+    void sort_readers_by_name() {
+        std::sort(readers.begin(), readers.end(),
+            [](const std::shared_ptr<Reader>& a, const std::shared_ptr<Reader>& b) {
+                return *a < *b;
+            });
     }
 
-    // Геттер для количества читателей
-    int get_reader_count() const {
-        return reader_count;
+    // Метод для сортировки выдач по дате
+    void sort_loans_by_date() {
+        std::sort(loans.begin(), loans.end(),
+            [](const std::shared_ptr<Loan>& a, const std::shared_ptr<Loan>& b) {
+                return *a < *b;
+            });
     }
 
-    // Получение книги по индексу
-    Book* get_books(int i) {
-        return books[i];
+    // Метод для поиска книги по названию (бинарный поиск после сортировки)
+    std::shared_ptr<Book> find_book_by_title(const std::string& title) {
+        sort_books_by_title(); // Сначала сортируем
+        auto it = std::lower_bound(books.begin(), books.end(), title,
+            [](const std::shared_ptr<Book>& book, const std::string& title) {
+                return book->get_title() < title;
+            });
+
+        if (it != books.end() && (*it)->get_title() == title) {
+            return *it;
+        }
+        return nullptr;
     }
 
-    // Получение читателя по индексу
-    Reader* get_reader(int i) {
-        return readers[i];
+    // Метод для поиска книги по ISBN (используем map для быстрого поиска)
+    std::shared_ptr<Book> find_book_by_isbn(const std::string& isbn) {
+        auto it = isbn_index.find(isbn);
+        if (it != isbn_index.end()) {
+            return it->second;
+        }
+        return nullptr;
+    }
+
+    // Метод для поиска читателя по номеру билета
+    std::shared_ptr<Reader> find_reader_by_card(int card_number) {
+        auto it = std::find_if(readers.begin(), readers.end(),
+            [card_number](const std::shared_ptr<Reader>& reader) {
+                return reader->get_card_number() == card_number;
+            });
+
+        if (it != readers.end()) {
+            return *it;
+        }
+        return nullptr;
     }
 
     // Метод для вывода всей информации о библиотеке
     void print_Library() {
-        printf("Общее количество авторов: %d\n", Author::get_total_authors());
+        printf("Общее количество авторов: %zu\n", authors.size());
 
-        printf("Список авторов:\n");
-        for (int i = 0; i < MAX_AUTHORS; i++) {
-            if (authors[i] != nullptr) {
-                authors[i]->displayInfo(); // Вызов через виртуальную функцию
+        printf("\nСписок авторов (отсортированный по ФИО):\n");
+        for (const auto& author : authors) {
+            if (author != nullptr) {
+                author->displayInfo(); // Вызов через виртуальную функцию
+                std::cout << std::endl;
             }
         }
 
-        printf("\nСписок книг:\n");
-        for (int i = 0; i < book_count; i++) {
-            if (books[i] != nullptr) {
-                std::cout << *books[i] << "\n\n"; // Использование оператора <<
+        printf("\nСписок книг (отсортированный по названию):\n");
+        sort_books_by_title();
+        for (const auto& book : books) {
+            if (book != nullptr) {
+                std::cout << *book << "\n\n"; // Использование оператора <<
             }
         }
 
-        printf("Список читателей:\n");
-        for (int i = 0; i < reader_count; i++) {
-            if (readers[i] != nullptr) {
-                std::cout << *readers[i] << "\n\n"; // Использование оператора <<
+        printf("\nСписок читателей (отсортированный по ФИО):\n");
+        sort_readers_by_name();
+        for (const auto& reader : readers) {
+            if (reader != nullptr) {
+                std::cout << *reader << "\n\n"; // Использование оператора <<
             }
         }
 
-        printf("Список выдач:\n");
-        for (int i = 0; i < loan_count; i++) {
-            if (loans[i] != nullptr) {
-                std::cout << *loans[i] << "\n\n"; // Использование оператора <<
+        printf("\nСписок выдач (отсортированный по дате):\n");
+        sort_loans_by_date();
+        for (const auto& loan : loans) {
+            if (loan != nullptr) {
+                std::cout << *loan << "\n\n"; // Использование оператора <<
             }
         }
     }
 
     // Метод для добавления автора
     void add_Author() {
-        if (book_count < MAX_AUTHORS) {
-            // Создаем FamousAuthor вместо обычного Author для демонстрации
-            authors[book_count] = new FamousAuthor("", 0, "", 0);
-            authors[book_count]->add_Author();
-            book_count++;
-        }
-        else {
-            printf("Ошибка: достигнуто максимальное количество авторов.\n");
-        }
+        // Создаем FamousAuthor вместо обычного Author для демонстрации
+        auto newAuthor = std::make_shared<FamousAuthor>("", 0, "", 0);
+        newAuthor->add_Author();
+        authors.push_back(newAuthor);
     }
 
     // Метод для добавления книги
     void add_Book() {
-        if (book_count < MAX_BOOKS) {
-            books[book_count] = new Book();
-            books[book_count]->add_Book(authors, book_count);
-            book_count++;
+        if (authors.empty()) {
+            printf("Ошибка: сначала добавьте хотя бы одного автора.\n");
+            return;
         }
-        else {
-            printf("Ошибка: достигнуто максимальное количество книг.\n");
-        }
+
+        auto newBook = std::make_shared<Book>();
+        newBook->add_Book(authors);
+        books.push_back(newBook);
+        isbn_index[newBook->get_isbn()] = newBook; // Добавляем в индекс для быстрого поиска
     }
 
     // Метод для добавления читателя
     void add_Reader() {
-        if (reader_count < MAX_READERS) {
-            readers[reader_count] = new Reader();
-            readers[reader_count]->add_Reader();
-            reader_count++;
-        }
-        else {
-            printf("Ошибка: достигнуто максимальное количество читателей.\n");
-        }
+        auto newReader = std::make_shared<Reader>();
+        newReader->add_Reader();
+        readers.push_back(newReader);
     }
 
     // Метод для добавления выдачи книги
     void add_Loan() {
-        if (loan_count < MAX_LOANS) {
-            if (book_count == 0) {
-                printf("Ошибка: нет книг в библиотеке.\n");
-                return;
+        if (books.empty()) {
+            printf("Ошибка: нет книг в библиотеке.\n");
+            return;
+        }
+
+        if (readers.empty()) {
+            printf("Ошибка: нет читателей в библиотеке.\n");
+            return;
+        }
+
+        try {
+            printf("Выберите книгу (введите номер): ");
+            for (size_t i = 0; i < books.size(); i++) {
+                if (books[i] != nullptr) {
+                    printf("%zu. %s\n", i + 1, books[i]->get_title().c_str());
+                }
+            }
+            int book_index;
+            scanf("%d", &book_index);
+            if (book_index < 1 || book_index > static_cast<int>(books.size()) || !books[book_index - 1])
+                throw std::out_of_range("Некорректный номер книги.");
+
+            printf("Выберите читателя (введите номер): ");
+            for (size_t i = 0; i < readers.size(); i++) {
+                if (readers[i] != nullptr) {
+                    printf("%zu. %s\n", i + 1, readers[i]->get_fio().c_str());
+                }
+            }
+            int reader_index;
+            scanf("%d", &reader_index);
+            if (reader_index < 1 || reader_index > static_cast<int>(readers.size()) || !readers[reader_index - 1])
+                throw std::out_of_range("Некорректный номер читателя.");
+
+            if (!is_book_available(*books[book_index - 1], 1)) {
+                throw std::runtime_error("Недостаточно экземпляров книги.");
             }
 
-            int book_index, reader_index;
-            try {
-                printf("Выберите книгу (введите номер): ");
-                for (int i = 0; i < book_count; i++) {
-                    if (books[i] != nullptr) {
-                        printf("%d. %s\n", i + 1, books[i]->get_title().c_str());
-                    }
-                }
-                scanf("%d", &book_index);
-                if (book_index < 1 || book_index > book_count || books[book_index - 1] == nullptr)
-                    throw std::out_of_range("Некорректный номер книги.");
+            std::string issue_date, return_date;
+            printf("Введите дату выдачи книги (дд.мм.гггг): ");
+            std::cin >> issue_date;
+            printf("Введите дату возврата книги (дд.мм.гггг): ");
+            std::cin >> return_date;
 
-                printf("Выберите читателя (введите номер): ");
-                for (int i = 0; i < reader_count; i++) {
-                    if (readers[i] != nullptr) {
-                        printf("%d. %s\n", i + 1, readers[i]->get_fio().c_str());
-                    }
-                }
-                scanf("%d", &reader_index);
-                if (reader_index < 1 || reader_index > reader_count || readers[reader_index - 1] == nullptr)
-                    throw std::out_of_range("Некорректный номер читателя.");
-
-                if (!is_book_available(*books[book_index - 1], 1)) {
-                    throw std::runtime_error("Недостаточно экземпляров книги.");
-                }
-
-                std::string issue_date, return_date;
-                printf("Введите дату выдачи книги (дд.мм.гггг): ");
-                std::cin >> issue_date;
-                printf("Введите дату возврата книги (дд.мм.гггг): ");
-                std::cin >> return_date;
-
-                loans[loan_count] = new Loan(books[book_index - 1], readers[reader_index - 1], issue_date, return_date);
-                loan_count++;
-
-                // Демонстрация работы с указателями и ссылками
-                int* count_ptr = readers[reader_index - 1]->get_borrowed_count_ptr();
-                (*count_ptr)++;
-
-                int& count_ref = readers[reader_index - 1]->get_borrowed_count_ref();
-                count_ref++;
-            }
-            catch (const std::exception& e) {
-                std::cerr << "Ошибка при создании выдачи: " << e.what() << std::endl;
-            }
+            auto newLoan = std::make_shared<Loan>(books[book_index - 1], readers[reader_index - 1], issue_date, return_date);
+            loans.push_back(newLoan);
+            readers[reader_index - 1]->add_borrowed_book(books[book_index - 1], issue_date);
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Ошибка при создании выдачи: " << e.what() << std::endl;
         }
     }
 
-    // Деструктор для освобождения памяти
-    ~Library() {
-        for (int i = 0; i < MAX_AUTHORS; i++) delete authors[i];
-        for (int i = 0; i < book_count; i++) delete books[i];
-        for (int i = 0; i < reader_count; i++) delete readers[i];
-        for (int i = 0; i < loan_count; i++) delete loans[i];
+    // Метод для поиска и вывода информации о книге
+    void search_and_print_book() {
+        printf("Выберите тип поиска:\n");
+        printf("1. По названию\n");
+        printf("2. По ISBN\n");
+        int choice;
+        scanf("%d", &choice);
+
+        std::string search_term;
+        printf("Введите поисковый запрос: ");
+        while (getchar() != '\n'); // Очистка буфера
+        std::getline(std::cin, search_term);
+
+        std::shared_ptr<Book> found_book;
+        switch (choice) {
+        case 1:
+            found_book = find_book_by_title(search_term);
+            break;
+        case 2:
+            found_book = find_book_by_isbn(search_term);
+            break;
+        default:
+            printf("Неверный выбор.\n");
+            return;
+        }
+
+        if (found_book) {
+            std::cout << "\nНайдена книга:\n" << *found_book << std::endl;
+        }
+        else {
+            printf("Книга не найдена.\n");
+        }
+    }
+
+    // Метод для поиска и вывода информации о читателе
+    void search_and_print_reader() {
+        printf("Выберите тип поиска:\n");
+        printf("1. По номеру билета\n");
+        printf("2. По ФИО\n");
+        int choice;
+        scanf("%d", &choice);
+
+        if (choice == 1) {
+            printf("Введите номер читательского билета: ");
+            int card_number;
+            scanf("%d", &card_number);
+            auto reader = find_reader_by_card(card_number);
+            if (reader) {
+                std::cout << "\nНайден читатель:\n" << *reader << std::endl;
+            }
+            else {
+                printf("Читатель не найден.\n");
+            }
+        }
+        else if (choice == 2) {
+            printf("Введите ФИО читателя: ");
+            std::string name;
+            while (getchar() != '\n'); // Очистка буфера
+            std::getline(std::cin, name);
+
+            // Линейный поиск по ФИО (можно было бы использовать сортировку и binary_search)
+            bool found = false;
+            for (const auto& reader : readers) {
+                if (reader && reader->get_fio() == name) {
+                    std::cout << "\nНайден читатель:\n" << *reader << std::endl;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                printf("Читатель не найден.\n");
+            }
+        }
+        else {
+            printf("Неверный выбор.\n");
+        }
     }
 };
 
@@ -622,7 +754,6 @@ int main() {
     // Создание объекта библиотеки
     Library library;
 
-
     printf("БИБЛИОТЕЧНЫЙ УЧЁТ\n");
 
     // Основное меню программы
@@ -634,7 +765,9 @@ int main() {
         printf("3. Добавить читателя\n");
         printf("4. Выдать книгу\n");
         printf("5. Просмотреть все данные\n");
-        printf("6. Выход\n");
+        printf("6. Поиск книги\n");
+        printf("7. Поиск читателя\n");
+        printf("8. Выход\n");
         printf("Выберите действие: ");
         scanf("%d", &choice);
 
@@ -655,19 +788,18 @@ int main() {
             library.print_Library();
             break;
         case 6:
+            library.search_and_print_book();
+            break;
+        case 7:
+            library.search_and_print_reader();
+            break;
+        case 8:
             printf("Выход из программы.\n");
             break;
         default:
             printf("Неверный выбор. Попробуйте снова.\n");
         }
-    } while (choice != 6);
-
-    // Очистка памяти
-    for (int i = 0; i < 2; ++i) {
-        for (int j = 0; j < 2; ++j) {
-            delete author_matrix[i][j];
-        }
-    }
+    } while (choice != 8);
 
     return 0;
 }
